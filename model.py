@@ -24,6 +24,10 @@ def vertical_velocity(a, z, kink_height=0.2, h=2700.0):
     return (2 * (1 - z / h) - kink_height) / (2 - kink_height) * a
 
 
+def vertical_strain_rate(a, kink_height=0.2, h=2700.0):
+    return -2 * a / h / (2 - kink_height)
+
+
 def layer_depth(x, a_scale, u_scale, a, u, time, num_steps):
     """Compute the depth of an advected surface ice layer
 
@@ -62,3 +66,58 @@ def layer_depth(x, a_scale, u_scale, a, u, time, num_steps):
         z[step + 1, :] = scipy.sparse.linalg.spsolve(L, f)
 
     return z
+
+
+def adjoint_solve(x, a_scale, u_scale, a, u, z, λ_T, time, num_steps):
+    """Solve the advection equation backwards in time from `λ_T` to compute the
+    derivative of some functional w.r.t. the parameters"""
+    dx = np.diff(x)
+    dt = time / num_steps
+
+    I = scipy.sparse.eye(len(x))
+    D = scipy.sparse.diags([np.hstack(([0], -1/dx)), 1/dx], [0, 1])
+
+    λ = np.zeros((num_steps + 1, len(x)))
+    λ[num_steps, :] = λ_T
+    for step in range(num_steps - 1, -1, -1):
+        L = I - dt * u_scale[step] * D.T * scipy.sparse.diags([u], [0])
+        f = (1 + dt * vertical_strain_rate(a_scale[step] * a)) * λ[step + 1, :]
+        λ[step, :] = scipy.sparse.linalg.spsolve(L, f)
+
+    return λ
+
+
+def mean_square_misfit(x, z, zo):
+    mse = 0.0
+    for n in range(len(x) - 1):
+        dx = x[n + 1] - x[n]
+        mse += 0.5 * ((z[n] + z[n+1])/2 - (zo[n] + zo[n+1])/2)**2 * dx
+
+    return mse
+
+
+def sensitivity_ascale(x, z, λ, a):
+    num_steps = z.shape[0] - 1
+    num_points = z.shape[1]
+    dJ_da = np.zeros(num_steps)
+
+    for k in range(num_steps):
+        w = vertical_velocity(a[k], z[k + 1, :])
+        for n in range(num_points - 1):
+            dx = x[n + 1] - x[n]
+            dJ_da[k] -= (λ[k, n + 1] * w[n + 1] + λ[k, n] * w[n]) / 2 * dx
+
+    return dJ_da
+
+
+def sensitivity_uscale(x, z, λ, u):
+    num_steps = z.shape[0] - 1
+    num_points = z.shape[1]
+    dJ_du = np.zeros(num_steps)
+
+    for k in range(num_steps):
+        for n in range(num_points - 1):
+            dz = (z[k + 1, n + 1] - z[k + 1, n]) / 2
+            dJ_du[k] -= dz * (λ[k, n + 1] * u[n + 1] + λ[k, n] * u[n]) / 2
+
+    return dJ_du
