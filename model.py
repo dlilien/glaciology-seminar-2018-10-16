@@ -96,7 +96,7 @@ def mean_square_misfit(x, z, zo):
     return mse
 
 
-def sensitivity_ascale(x, z, λ, a):
+def adjoint_sensitivity_ascale(x, z, λ, a):
     num_steps = z.shape[0] - 1
     num_points = z.shape[1]
     dJ_da = np.zeros(num_steps)
@@ -110,14 +110,8 @@ def sensitivity_ascale(x, z, λ, a):
     return dJ_da
 
 
-def sensitivity_uscale(x, z, λ, u):
-    num_steps = z.shape[0] - 1
-    num_points = z.shape[1]
-    dJ_du = np.zeros(num_steps)
-
-    for k in range(num_steps):
-        for n in range(num_points - 1):
-            dz = (z[k + 1, n + 1] - z[k + 1, n]) / 2
-            dJ_du[k] -= dz * (λ[k, n + 1] * u[n + 1] + λ[k, n] * u[n]) / 2
-
-    return dJ_du
+def derivative_ascale(x, a_scale, u_scale, a, u,
+                      z, target_layer, time, num_steps):
+    λ_final = target_layer - z[-1, :]
+    λ = adjoint_solve(x, a_scale, u_scale, a, u, z, λ_final, time, num_steps)
+    return adjoint_sensitivity_ascale(x, z, λ, a)
