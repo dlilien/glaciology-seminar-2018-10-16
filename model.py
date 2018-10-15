@@ -93,7 +93,7 @@ def mean_square_misfit(x, z, zo):
         dx = x[n + 1] - x[n]
         mse += 0.5 * ((z[n] + z[n+1])/2 - (zo[n] + zo[n+1])/2)**2 * dx
 
-    return mse
+    return mse / x[-1]
 
 
 def adjoint_sensitivity_ascale(x, z, λ, a):
@@ -112,6 +112,6 @@ def adjoint_sensitivity_ascale(x, z, λ, a):
 
 def derivative_ascale(x, a_scale, u_scale, a, u,
                       z, target_layer, time, num_steps):
-    λ_final = target_layer - z[-1, :]
+    λ_final = (target_layer - z[-1, :]) / x[-1]
     λ = adjoint_solve(x, a_scale, u_scale, a, u, z, λ_final, time, num_steps)
     return adjoint_sensitivity_ascale(x, z, λ, a)
