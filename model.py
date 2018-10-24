@@ -25,10 +25,15 @@ def vertical_velocity(a, z, kink_height=0.2, h=2700.0):
 
 
 def vertical_strain_rate(a, kink_height=0.2, h=2700.0):
+    """Return the vertical strain rate, which by DJ is independent of depth above the kink.
+
+    .. math::
+        \dot{\epsilon_{zz}} = \frac{\partial v_z}{\partial z} =  \frac{\partial}{\partial z} \left(a\frac{2(1-z/h) - k_h}{2 - k_h}\right)=-\frac{2a}{(2-k_h)h}
+    """
     return -2 * a / h / (2 - kink_height)
 
 
-def layer_depth(x, a_scale, u_scale, a, u, time, num_steps):
+def layer_depth(x, a_scale, u_scale, a, u, timesteps):
     """Compute the depth of an advected surface ice layer
 
     Parameters
@@ -53,65 +58,113 @@ def layer_depth(x, a_scale, u_scale, a, u, time, num_steps):
     z : np.ndarray(num_gridpoints x 1)
         The depth of the advected surface layer
     """
+    num_steps = len(timesteps)
     dx = np.diff(x)
-    dt = time / num_steps
 
     I = scipy.sparse.eye(len(x))
     D = scipy.sparse.diags([np.hstack((-1/dx, [0])), 1/dx], [0, 1])
 
     z = np.zeros((num_steps + 1, len(x)))
     for step in range(num_steps):
-        L = I - dt * u_scale[step] * scipy.sparse.diags([u], [0]) * D
-        f = z[step, :] + dt * vertical_velocity(a_scale[step] * a, z[step, :])
+        L = I - timesteps[step] * u_scale[step] * scipy.sparse.diags([u], [0]) * D
+        f = z[step, :] + timesteps[step] * vertical_velocity(a_scale[step] * a, z[step, :])
         z[step + 1, :] = scipy.sparse.linalg.spsolve(L, f)
 
     return z
 
 
-def adjoint_solve(x, a_scale, u_scale, a, u, z, λ_T, time, num_steps):
+def adjoint_solve(x, a_scale, u_scale, a, u, z, λ_T, timesteps):
     """Solve the advection equation backwards in time from `λ_T` to compute the
-    derivative of some functional w.r.t. the parameters"""
+    derivative of some functional w.r.t. the parameters
+    
+    Forward equation is $\frac{\partial z}{\partial t} = s_u(t)u\frac{\partial z}{\partial x} + s_a(t)v(z)
+    
+    adjoint is
+    
+    -\frac{\partial z}{\partial t} = -s_u(t)u\frac{\partial z}{\partail z} + s_a(t)v(z)
+    
+    """
     dx = np.diff(x)
-    dt = time / num_steps
+    num_steps = len(timesteps)
 
     I = scipy.sparse.eye(len(x))
     D = scipy.sparse.diags([np.hstack(([0], -1/dx)), 1/dx], [0, 1])
 
     λ = np.zeros((num_steps + 1, len(x)))
     λ[num_steps, :] = λ_T
+    ##!! NEED TO CHECK IF SHOULD BE STEP OR STEP - 1 below...
     for step in range(num_steps - 1, -1, -1):
-        L = I - dt * u_scale[step] * D.T * scipy.sparse.diags([u], [0])
-        f = (1 + dt * vertical_strain_rate(a_scale[step] * a)) * λ[step + 1, :]
+        L = I - timesteps[step] * u_scale[step] * D.T * scipy.sparse.diags([u], [0])
+        f = (1 + timesteps[step] * vertical_strain_rate(a_scale[step] * a)) * λ[step + 1, :]
         λ[step, :] = scipy.sparse.linalg.spsolve(L, f)
 
     return λ
 
 
-def mean_square_misfit(x, z, zo):
-    mse = 0.0
-    for n in range(len(x) - 1):
-        dx = x[n + 1] - x[n]
-        mse += 0.5 * ((z[n] + z[n+1])/2 - (zo[n] + zo[n+1])/2)**2 * dx
-
-    return mse / x[-1]
+def msm(x, z, targ):
+    return 0.5 * np.dot(((z[:, 1:] + z[:, :-1]) / 2. - (targ[:, 1:] + targ[:, :-1]) / 2.)**2.0, np.diff(x))
 
 
 def adjoint_sensitivity_ascale(x, z, λ, a):
     num_steps = z.shape[0] - 1
     num_points = z.shape[1]
     dJ_da = np.zeros(num_steps)
-
+    dx = np.diff(x)
     for k in range(num_steps):
         w = vertical_velocity(a[k], z[k + 1, :])
-        for n in range(num_points - 1):
-            dx = x[n + 1] - x[n]
-            dJ_da[k] -= (λ[k, n + 1] * w[n + 1] + λ[k, n] * w[n]) / 2 * dx
-
+        dJ_da[k] = np.sum(-(λ[k, 1:] * w[1:] + λ[k, :-1] * w[:-1]) / 2 * dx)
     return dJ_da
 
 
+def adjoint_sensitivity_vscale(x, z, λ, v):
+    num_steps = z.shape[0] - 1
+    num_points = z.shape[1]
+    dJ_du = np.zeros(num_steps)
+    dx = np.diff(x)
+
+    for k in range(num_steps):
+            dzdx = -np.diff(z[k, :]) / dx
+            # we have the dzdx on the intervals
+            # and we are calculating with trapezoids,
+            # so we can just keep dzdx outside the expression
+            dJ_du[k] = np.sum((λ[k, 1:] * v[1:] + λ[k, :-1] * v[:-1]) * dzdx / 2 * dx)
+    return dJ_du
+
+
 def derivative_ascale(x, a_scale, u_scale, a, u,
-                      z, target_layer, time, num_steps):
+                      z, target_layers, target_indices, timesteps):
+    dJ_da = np.zeros_like(a_scale)
+    for i, index in enumerate(target_indices):
+        λ_i = (target_layers[i] - z[index, :]) / x[-1]
+        λ_new = adjoint_solve(x, a_scale[:index + 1], u_scale[:index + 1], a, u, z[:index +1, :], λ_i, timesteps[:index + 1])
+        dJ_da[:index] += adjoint_sensitivity_ascale(x, z[:index + 1], λ_new, a)
+    return dJ_da
+        
+                           
+def derivative_vscale(x, a_scale, u_scale, a, u,
+                      z, target_layers, target_indices, timesteps):
+    dJ_du = np.zeros_like(u_scale)
+    for i, index in enumerate(target_indices):
+        λ_i = (target_layers[i] - z[index, :]) / x[-1]
+        λ_new = adjoint_solve(x, a_scale[:index + 1], u_scale[:index + 1], a, u, z[:index + 1, :], λ_i, timesteps[:index + 1])
+        dJ_du[:index] += adjoint_sensitivity_vscale(x, z[:index + 1], λ_new, u)
+    return dJ_du
+
+
+def derivative_scales(x, a_scale, u_scale, a, u,
+                      z, target_layers, target_indices, timesteps):
+    num_tsteps = u_scale.shape[0]
+    dJ_dau = np.zeros((u_scale.shape[0] * 2,))
+    for i, index in enumerate(target_indices):
+        λ_i = (target_layers[i] - z[index, :]) / x[-1]
+        λ_new = adjoint_solve(x, a_scale[:index + 1], u_scale[:index + 1], a, u, z[:index + 1, :], λ_i, timesteps[:index + 1])
+        dJ_dau[:index] += adjoint_sensitivity_ascale(x, z[:index + 1], λ_new, a)
+        dJ_dau[u_scale.shape[0]:u_scale.shape[0] + index] += adjoint_sensitivity_vscale(x, z[:index + 1], λ_new, u)
+    return dJ_dau
+    
+
+
+def derivative_ascale_onelayer(x, a_scale, u_scale, a, u, z, target_layer, timesteps):
     λ_final = (target_layer - z[-1, :]) / x[-1]
-    λ = adjoint_solve(x, a_scale, u_scale, a, u, z, λ_final, time, num_steps)
+    λ = adjoint_solve(x, a_scale, u_scale, a, u, z, λ_final, timesteps)
     return adjoint_sensitivity_ascale(x, z, λ, a)
