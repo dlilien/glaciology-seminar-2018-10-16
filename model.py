@@ -151,8 +151,8 @@ def derivative_vscale(x, a_scale, u_scale, a, u,
     return dJ_du
 
 
-def derivative_scales(x, a_scale, u_scale, a, u,
-                      z, target_layers, target_indices, timesteps):
+def derivative_scales_old(x, a_scale, u_scale, a, u,
+                          z, target_layers, target_indices, timesteps):
     num_tsteps = u_scale.shape[0]
     dJ_dau = np.zeros((u_scale.shape[0] * 2,))
     for i, index in enumerate(target_indices):
@@ -161,7 +161,34 @@ def derivative_scales(x, a_scale, u_scale, a, u,
         dJ_dau[:index] += adjoint_sensitivity_ascale(x, z[:index + 1], λ_new, a)
         dJ_dau[u_scale.shape[0]:u_scale.shape[0] + index] += adjoint_sensitivity_vscale(x, z[:index + 1], λ_new, u)
     return dJ_dau
-    
+
+
+def derivative_scales(x, a_scale, u_scale, a, u,
+                      z, target_layers, target_indices, timesteps):
+    num_tsteps = u_scale.shape[0]
+    dJ_dau = np.zeros((u_scale.shape[0] * 2,))
+    λ_new = np.zeros((1, x.shape[0]))
+    for i in range(len(target_indices) - 1, 0, -1):
+        indend = target_indices[i]
+        indstart = target_indices[i - 1]
+
+        λ_i = (target_layers[i] - z[indend, :]) / x[-1] + λ_new[0, :]
+        λ_new = adjoint_solve(x, a_scale[indstart:indend + 1], u_scale[:indend + 1], a, u, z[indstart:indend + 1, :], λ_i, timesteps[indstart:indend + 1])
+
+        dJ_dau[indstart:indend] = adjoint_sensitivity_ascale(x, z[indstart:indend + 1], λ_new, a)
+        dJ_dau[u_scale.shape[0] + indstart:u_scale.shape[0] + indend] += adjoint_sensitivity_vscale(x, z[indstart:indend + 1], λ_new, u)
+
+    # and the fencepost
+    if target_indices[0] != 0:
+        indend = target_indices[0]
+        indstart = 0
+
+        λ_i = (target_layers[0] - z[indend, :]) / x[-1] + λ_new[0, :]
+        λ_new = adjoint_solve(x, a_scale[indstart:indend + 1], u_scale[:indend + 1], a, u, z[indstart:indend + 1, :], λ_i, timesteps[indstart:indend + 1])
+
+        dJ_dau[indstart:indend] = adjoint_sensitivity_ascale(x, z[indstart:indend + 1], λ_new, a)
+        dJ_dau[u_scale.shape[0] + indstart:u_scale.shape[0] + indend] += adjoint_sensitivity_vscale(x, z[indstart:indend + 1], λ_new, u)
+    return dJ_dau
 
 
 def derivative_ascale_onelayer(x, a_scale, u_scale, a, u, z, target_layer, timesteps):
