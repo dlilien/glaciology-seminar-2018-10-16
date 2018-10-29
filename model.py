@@ -135,8 +135,10 @@ def derivative_ascale(x, a_scale, u_scale, a, u,
                       z, target_layers, target_indices, timesteps):
     dJ_da = np.zeros_like(a_scale)
     for i, index in enumerate(target_indices):
+
         λ_i = (target_layers[i] - z[index, :]) / x[-1]
-        λ_new = adjoint_solve(x, a_scale[:index + 1], u_scale[:index + 1], a, u, z[:index +1, :], λ_i, timesteps[:index + 1])
+        λ_i[np.isnan(λ_i)] = 0.0
+        λ_new = adjoint_solve(x, a_scale[:index + 1], u_scale[:index + 1], a, u, z[:index + 1, :], λ_i, timesteps[:index + 1])
         dJ_da[:index] += adjoint_sensitivity_ascale(x, z[:index + 1], λ_new, a)
     return dJ_da
         
@@ -146,6 +148,8 @@ def derivative_vscale(x, a_scale, u_scale, a, u,
     dJ_du = np.zeros_like(u_scale)
     for i, index in enumerate(target_indices):
         λ_i = (target_layers[i] - z[index, :]) / x[-1]
+        λ_i[np.isnan(λ_i)] = 0.0
+
         λ_new = adjoint_solve(x, a_scale[:index + 1], u_scale[:index + 1], a, u, z[:index + 1, :], λ_i, timesteps[:index + 1])
         dJ_du[:index] += adjoint_sensitivity_vscale(x, z[:index + 1], λ_new, u)
     return dJ_du

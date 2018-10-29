@@ -50,4 +50,4 @@ def load():
     u = vel_interpolater(x)
     acc_interpolater = scipy.interpolate.interp1d(more_data['acc_dists'][0], more_data['acc'][0])
     a = acc_interpolater(x)
-    return x, dx, target_layer_stack[:, indices], target_ages, a, u, target_layer_stack_deep[:, indices], target_ages_deep
+    return x, dx, np.vstack((target_layer_stack[:, indices], target_layer_stack_deep[:, indices][1:, :])), np.hstack((target_ages, target_ages_deep[1:])), a, u
