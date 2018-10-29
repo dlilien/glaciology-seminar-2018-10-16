@@ -102,7 +102,7 @@ def adjoint_solve(x, a_scale, u_scale, a, u, z, λ_T, timesteps):
 
 
 def msm(x, z, targ):
-    return 0.5 * np.dot(((z[:, 1:] + z[:, :-1]) / 2. - (targ[:, 1:] + targ[:, :-1]) / 2.)**2.0, np.diff(x))
+    return 0.5 * np.nansum(((z[:, 1:] + z[:, :-1]) / 2. - (targ[:, 1:] + targ[:, :-1]) / 2.)**2.0 * np.diff(x))
 
 
 def adjoint_sensitivity_ascale(x, z, λ, a):
@@ -151,18 +151,6 @@ def derivative_vscale(x, a_scale, u_scale, a, u,
     return dJ_du
 
 
-def derivative_scales_old(x, a_scale, u_scale, a, u,
-                          z, target_layers, target_indices, timesteps):
-    num_tsteps = u_scale.shape[0]
-    dJ_dau = np.zeros((u_scale.shape[0] * 2,))
-    for i, index in enumerate(target_indices):
-        λ_i = (target_layers[i] - z[index, :]) / x[-1]
-        λ_new = adjoint_solve(x, a_scale[:index + 1], u_scale[:index + 1], a, u, z[:index + 1, :], λ_i, timesteps[:index + 1])
-        dJ_dau[:index] += adjoint_sensitivity_ascale(x, z[:index + 1], λ_new, a)
-        dJ_dau[u_scale.shape[0]:u_scale.shape[0] + index] += adjoint_sensitivity_vscale(x, z[:index + 1], λ_new, u)
-    return dJ_dau
-
-
 def derivative_scales(x, a_scale, u_scale, a, u,
                       z, target_layers, target_indices, timesteps):
     num_tsteps = u_scale.shape[0]
@@ -172,7 +160,10 @@ def derivative_scales(x, a_scale, u_scale, a, u,
         indend = target_indices[i]
         indstart = target_indices[i - 1]
 
-        λ_i = (target_layers[i] - z[indend, :]) / x[-1] + λ_new[0, :]
+        λ_mis = (target_layers[i] - z[indend, :]) / x[-1]
+        λ_mis[np.isnan(λ_mis)] = 0.0
+
+        λ_i = λ_mis + λ_new[0, :]
         λ_new = adjoint_solve(x, a_scale[indstart:indend + 1], u_scale[:indend + 1], a, u, z[indstart:indend + 1, :], λ_i, timesteps[indstart:indend + 1])
 
         dJ_dau[indstart:indend] = adjoint_sensitivity_ascale(x, z[indstart:indend + 1], λ_new, a)

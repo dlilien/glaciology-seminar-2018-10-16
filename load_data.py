@@ -2,22 +2,36 @@ import numpy as np
 from scipy.io import loadmat
 import scipy.interpolate
 
+
 def load():
     layers_ie = loadmat('ie_layers.mat')
+    layers_deep = loadmat('twit_layers.mat')
+
     sx, sy = layers_ie['psx_layers'][0], layers_ie['psy_layers'][0]
     dx = np.sqrt(np.diff(sx)**2 + np.diff(sy)**2)
     x = np.hstack(([0], np.cumsum(dx)))[:5000]
     target_layers = {}
     target_ages = {}
+    target_layers_deep = {}
+    target_ages_deep = {}
     for i in range(24):
         if 'layer_{:d}'.format(i) in layers_ie:
             target_layers['layer_{:d}'.format(i)] = layers_ie['layer_{:d}'.format(i)][0][:5000]
             target_ages['layer_{:d}'.format(i)] = layers_ie['layer_{:d}_age'.format(i)][0]
+
+        if 'layer_{:d}'.format(i + 100) in layers_deep:
+            target_layers_deep['layer_{:d}'.format(i + 100)] = layers_deep['layer_{:d}'.format(i + 100)][0][:5000]
+            target_ages_deep['layer_{:d}'.format(i + 100)] = layers_deep['layer_{:d}_age'.format(i + 100)][0]
+
     target_ages = np.array([(tn, ta) for tn, ta in target_ages.items()], dtype=[('Name', 'S12'), ('Age', float)])
-    
+    target_ages_deep = np.array([(tn, ta) for tn, ta in target_ages_deep.items()], dtype=[('Name', 'S12'), ('Age', float)])
+
     # target_ages = np.sort(target_ages, order='Age')
     ta_ind = target_ages.sort(order='Age')       
     target_layer_stack = np.vstack([target_layers[tn.decode('utf-8')] for tn in target_ages['Name']])
+
+    ta_ind = target_ages_deep.sort(order='Age')       
+    target_layer_stack_deep = np.vstack([target_layers_deep[tn.decode('utf-8')] for tn in target_ages_deep['Name']])
 
     # Find any points that are duplicated or where there's data missing and remove them
     repeat_point_indices = np.where(dx < 1.0)[0] + 1
@@ -36,4 +50,4 @@ def load():
     u = vel_interpolater(x)
     acc_interpolater = scipy.interpolate.interp1d(more_data['acc_dists'][0], more_data['acc'][0])
     a = acc_interpolater(x)
-    return x, dx, target_layer_stack[:, indices], target_ages, a, u
+    return x, dx, target_layer_stack[:, indices], target_ages, a, u, target_layer_stack_deep[:, indices], target_ages_deep
