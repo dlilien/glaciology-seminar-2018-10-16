@@ -33,7 +33,7 @@ def vertical_strain_rate(a, kink_height=0.2, h=2700.0):
     return -2 * a / h / (2 - kink_height)
 
 
-def layer_depth(x, a_scale, u_scale, a, u, timesteps):
+def layer_depth(x, a_scale, u_scale, a, u, timesteps, mask=False):
     """Compute the depth of an advected surface ice layer
 
     Parameters
@@ -55,7 +55,7 @@ def layer_depth(x, a_scale, u_scale, a, u, timesteps):
 
     Returns
     -------
-    z : np.ndarray(num_gridpoints x 1)
+    z : np.ndarray(num_gridpoints x num_tsteps)
         The depth of the advected surface layer
     """
     num_steps = len(timesteps)
@@ -70,7 +70,27 @@ def layer_depth(x, a_scale, u_scale, a, u, timesteps):
         f = z[step, :] + timesteps[step] * vertical_velocity(a_scale[step] * a, z[step, :])
         z[step + 1, :] = scipy.sparse.linalg.spsolve(L, f)
 
+    if mask:
+        z = np.ma.masked_array(z, valid_data(x, u_scale, u, timesteps))
     return z
+
+
+def valid_data(x, u_scale, u, timesteps):
+    """Make a mask of where our output from layer_depth will actually be valid"""
+    num_steps = len(timesteps)
+    dx = np.diff(x)
+
+    mask = np.zeros((num_steps + 1, len(x)), dtype=bool)
+    right_edge = x[-1]
+    for step in range(num_steps):
+        ind_right_edge0 = np.where(x < right_edge)[0][-1]
+        if ind_right_edge0 == len(x) - 1:
+            vel_right_edge = u_scale[step] * u[ind_right_edge0]
+        else:
+            vel_right_edge = (u_scale[step] * u[ind_right_edge0] * (x[ind_right_edge0 + 1] - right_edge) + u_scale[step] * u[ind_right_edge0 + 1] * (right_edge - x[ind_right_edge0])) / (x[ind_right_edge0 + 1] - x[ind_right_edge0])
+        right_edge -= vel_right_edge * timesteps[step]
+        mask[step + 1, :] = x > right_edge
+    return mask
 
 
 def adjoint_solve(x, a_scale, u_scale, a, u, z, λ_T, timesteps):
