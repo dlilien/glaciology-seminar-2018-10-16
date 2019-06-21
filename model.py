@@ -62,16 +62,16 @@ def layer_depth(x, a_scale, u_scale, a, u, timesteps, mask=False):
     dx = np.diff(x)
 
     I = scipy.sparse.eye(len(x))
-    D = scipy.sparse.diags([np.hstack((-1/dx, [0])), 1/dx], [0, 1])
+    D = scipy.sparse.diags([np.hstack((-1. / dx, [0])), 1. / dx], [0, 1])
 
     z = np.zeros((num_steps + 1, len(x)))
     for step in range(num_steps):
         L = I - timesteps[step] * u_scale[step] * scipy.sparse.diags([u], [0]) * D
-        f = z[step, :] + timesteps[step] * vertical_velocity(a_scale[step] * a, z[step, :])
-        z[step + 1, :] = scipy.sparse.linalg.spsolve(L, f)
+        f = z[:step + 1, :] + timesteps[step] * vertical_velocity(a_scale[step] * a, z[:step + 1, :])
+        z[1:step + 2, :] = scipy.sparse.linalg.spsolve(L, f.T).T
 
     if mask:
-        z = np.ma.masked_array(z, valid_data(x, u_scale, u, timesteps))
+        z[valid_data(x, u_scale, u, timesteps)] = np.nan
     return z
 
 
@@ -115,14 +115,17 @@ def adjoint_solve(x, a_scale, u_scale, a, u, z, λ_T, timesteps):
     ##!! NEED TO CHECK IF SHOULD BE STEP OR STEP - 1 below...
     for step in range(num_steps - 1, -1, -1):
         L = I - timesteps[step] * u_scale[step] * D.T * scipy.sparse.diags([u], [0])
-        f = (1 + timesteps[step] * vertical_strain_rate(a_scale[step] * a)) * λ[step + 1, :]
-        λ[step, :] = scipy.sparse.linalg.spsolve(L, f)
+        f = (1 + timesteps[step] * vertical_strain_rate(a_scale[step] * a)) * λ[step + 1:, :]
+        λ[step:-1, :] = scipy.sparse.linalg.spsolve(L, f.T).T
 
     return λ
 
 
-def msm(x, z, targ):
-    return 0.5 * np.nansum(((z[:, 1:] + z[:, :-1]) / 2. - (targ[:, 1:] + targ[:, :-1]) / 2.)**2.0 * np.diff(x))
+def msm(x, z, targ, uncertainty=None):
+    if uncertainty is not None:
+        return 0.5 * np.nansum(((z[:, 1:] + z[:, :-1]) / uncertainty**2.0 / 2. - (targ[:, 1:] + targ[:, :-1]) / uncertainty**2.0 / 2.)**2.0 * np.diff(x))
+    else:
+        return 0.5 * np.nansum(((z[:, 1:] + z[:, :-1]) / 2. - (targ[:, 1:] + targ[:, :-1]) / 2.)**2.0 * np.diff(x))
 
 
 def adjoint_sensitivity_ascale(x, z, λ, a):
@@ -151,23 +154,30 @@ def adjoint_sensitivity_vscale(x, z, λ, v):
     return dJ_du
 
 
-def derivative_ascale(x, a_scale, u_scale, a, u,
-                      z, target_layers, target_indices, timesteps):
+def derivative_ascale(x, a_scale, u_scale, a, u, z, target_layers, target_indices, timesteps, uncertainty=None):
+    """Compute the derivative of the cost in terms of the a-scale. I'm going to do this flipped in time for ease, then flip back at the end"""
     dJ_da = np.zeros_like(a_scale)
     for i, index in enumerate(target_indices):
-
-        λ_i = (target_layers[i] - z[index, :]) / x[-1]
+        if uncertainty is not None:
+            unc = uncertainty[i] ** 2.0
+        else:
+            unc = 1.0
+        λ_i = (target_layers[i] - z[index, :]) / x[-1] / unc
         λ_i[np.isnan(λ_i)] = 0.0
         λ_new = adjoint_solve(x, a_scale[:index + 1], u_scale[:index + 1], a, u, z[:index + 1, :], λ_i, timesteps[:index + 1])
         dJ_da[:index] += adjoint_sensitivity_ascale(x, z[:index + 1], λ_new, a)
-    return dJ_da
+    return np.flip(dJ_da)
         
                            
 def derivative_vscale(x, a_scale, u_scale, a, u,
-                      z, target_layers, target_indices, timesteps):
+                      z, target_layers, target_indices, timesteps, uncertainty=None):
     dJ_du = np.zeros_like(u_scale)
     for i, index in enumerate(target_indices):
-        λ_i = (target_layers[i] - z[index, :]) / x[-1]
+        if uncertainty is not None:
+            unc = uncertainty[i] ** 2.0
+        else:
+            unc = 1.0
+        λ_i = (target_layers[i] - z[index, :]) / x[-1] / unc
         λ_i[np.isnan(λ_i)] = 0.0
 
         λ_new = adjoint_solve(x, a_scale[:index + 1], u_scale[:index + 1], a, u, z[:index + 1, :], λ_i, timesteps[:index + 1])
@@ -176,15 +186,18 @@ def derivative_vscale(x, a_scale, u_scale, a, u,
 
 
 def derivative_scales(x, a_scale, u_scale, a, u,
-                      z, target_layers, target_indices, timesteps):
+                      z, target_layers, target_indices, timesteps, uncertainty=None):
     num_tsteps = u_scale.shape[0]
     dJ_dau = np.zeros((u_scale.shape[0] * 2,))
     λ_new = np.zeros((1, x.shape[0]))
     for i in range(len(target_indices) - 1, 0, -1):
         indend = target_indices[i]
         indstart = target_indices[i - 1]
-
-        λ_mis = (target_layers[i] - z[indend, :]) / x[-1]
+        if uncertainty is not None:
+            unc = uncertainty[i] ** 2.0
+        else:
+            unc = 1.0
+        λ_mis = (target_layers[i] - z[indend, :]) / x[-1] / unc
         λ_mis[np.isnan(λ_mis)] = 0.0
 
         λ_i = λ_mis + λ_new[0, :]
@@ -206,7 +219,12 @@ def derivative_scales(x, a_scale, u_scale, a, u,
     return dJ_dau
 
 
-def derivative_ascale_onelayer(x, a_scale, u_scale, a, u, z, target_layer, timesteps):
-    λ_final = (target_layer - z[-1, :]) / x[-1]
+def derivative_ascale_onelayer(x, a_scale, u_scale, a, u, z, target_layer, timesteps, uncertainty=None):
+    if uncertainty is not None:
+        unc = uncertainty[i] ** 2.0
+    else:
+        unc = 1.0
+
+    λ_final = (target_layer - z[-1, :]) / x[-1] / unc
     λ = adjoint_solve(x, a_scale, u_scale, a, u, z, λ_final, timesteps)
     return adjoint_sensitivity_ascale(x, z, λ, a)
