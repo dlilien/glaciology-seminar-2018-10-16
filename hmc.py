@@ -18,9 +18,7 @@ import pickle
 x, dx, target_layers, target_ages, a, u = load_data.load()
 target_layer = target_layers[-1, :]
 timestep_target = 17  # This is our target year spacing
-times = np.hstack([np.linspace(0, target_ages['Age'][0], int(np.round(target_ages['Age'][0] / timestep_target)) + 1)[:-1]] +
-                  [np.linspace(target_ages['Age'][i], target_ages['Age'][i + 1], int(np.round((target_ages['Age'][i + 1] - target_ages['Age'][i]) / timestep_target)) + 1)[:-1] for i in range(len(target_ages) - 1)] +
-                  [np.array(target_ages['Age'][-1])])
+times = np.hstack([np.linspace(0, target_ages['Age'][0], int(np.round(target_ages['Age'][0] / timestep_target)) + 1)[:-1]] + [np.linspace(target_ages['Age'][i], target_ages['Age'][i + 1], int(np.round((target_ages['Age'][i + 1] - target_ages['Age'][i]) / timestep_target)) + 1)[:-1] for i in range(len(target_ages) - 1)] + [np.array(target_ages['Age'][-1])])
 compare_indices = np.array([i for i in range(len(times)) if np.any(times[i] == target_ages['Age'])])
 timesteps = np.diff(times)
 num_steps = len(timesteps)
@@ -74,12 +72,10 @@ def hamiltonian_update(δτ, θ_a, θ_v, ϕ):
     θ_v_τ = θ_v + 0.5 * δτ * vel[len(θ_a):]
 
     ϕ_τ = ϕ + δτ * (force(θ_a_τ, θ_v_τ))
-    
     vel = velocity(ϕ_τ)
     θ_a_τ += 0.5 * δτ * vel[:len(θ_a)]
     θ_v_τ += 0.5 * δτ * vel[len(θ_a):]
-    
-    return θ_a_τ, θ_v_τ, ϕ_τ 
+    return θ_a_τ, θ_v_τ, ϕ_τ
 
 
 θ_a = accumulation_scale.copy()
@@ -107,7 +103,6 @@ for sample in range(1, num_samples):
 
     for k in range(num_hamiltonian_steps):
         θ_a, θ_v, ϕ = hamiltonian_update(δτ, θ_a, θ_v, ϕ)
-        
     print(kinetic_energy(ϕ), potential_energy(θ_a, θ_v) / (x[-1] * len(compare_indices)))
     θs[sample, :] = θ_a.copy()
     θsv[sample, :] = θ_v.copy()
