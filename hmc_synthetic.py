@@ -18,13 +18,19 @@ import pickle
 
 # Load some synthetic data produced in synthetic_data.py
 def main(num_samples, da, dv):
-    x, dx, target_layers, target_ages, a, u, a_scale_data, u_scale_data, uncertainty, z = synthetic_data.load(delta_a=da, delta_v=dv)
-    timestep_target = 20  # This is our target year spacing
+    x, dx, target_layers, target_ages, a_true, u, a_scale_data, u_scale_data, uncertainty, z = synthetic_data.load(delta_a=da, delta_v=dv)
+
+    # We infer accumulation like we would for real data
+    x_unoffset = x + target_ages[0] * u / 2.
+    accinterp = scipy.interpolate.interp1d(x_unoffset, target_layers[0, :].flatten() / target_ages[0], fill_value='extrapolate')
+    a = accinterp(x)
+
+    timestep_target = 10  # This is our target year spacing
     target_ages = np.array(target_ages)
     uncertainty = np.ones_like(uncertainty)
 
-    times = np.flip(-np.hstack([np.linspace(0, target_ages[0], int(np.round(target_ages[0] / timestep_target)) + 1)[:-1]] + [np.linspace(target_ages[i], target_ages[i + 1], int(np.round((target_ages[i + 1] - target_ages[i]) / timestep_target)) + 1)[:-1] for i in range(len(target_ages) - 1)] + [np.array(target_ages[-1])]))
-    compare_indices = np.flip(len(times) - 1 - np.array([i for i in range(len(times)) if np.any(times[i] == -target_ages)]))
+    times = np.flip(-np.hstack([np.linspace(0, target_ages[0], int(np.round(target_ages[0] / timestep_target)) + 1)[:-1]] + [np.linspace(target_ages[i], target_ages[i + 1], int(np.round((target_ages[i + 1] - target_ages[i]) / timestep_target)) + 1)[:-1] for i in range(len(target_ages) - 1)] + [np.array(target_ages[-1])]), axis=-1)
+    compare_indices = np.flip(len(times) - 1 - np.array([i for i in range(len(times)) if np.any(times[i] == -target_ages)]), axis=-1)
     timesteps = np.diff(times)
     num_steps = len(timesteps)
 
@@ -107,7 +113,7 @@ def main(num_samples, da, dv):
     def integrate_phase_space(δτ, num_hamiltonian_steps, θ_a, θ_v, ϕ):
         print('Going along phase space')
         for k in range(num_hamiltonian_steps):
-            print('..{:d}'.format(k), end='', flush=True)
+            print('..{:d}'.format(k), end='')
             θ_a, θ_v, ϕ = hamiltonian_update(δτ, θ_a, θ_v, ϕ)
         return θ_a, θ_v, ϕ
 
@@ -168,9 +174,9 @@ def main(num_samples, da, dv):
     fig, ax = plt.subplots()
     for sample in range(pre_samples, num_samples):
         ax.plot(times[1:], θs[sample, :], color=cm1((sample + 1) / (num_samples - pre_samples)))
-        ax.plot(times[1:], np.flip(θsv[sample, :]), color=cm2((sample + 1) / (num_samples - pre_samples)))
+        ax.plot(times[1:], θsv[sample, :], color=cm2((sample + 1) / (num_samples - pre_samples)))
     ax.plot(np.linspace(-5000, 0, len(u_scale_data)), a_scale_data, color='k')
-    ax.plot(np.linspace(-5000, 0, len(u_scale_data)), np.flip(u_scale_data), color='purple')
+    ax.plot(np.linspace(-5000, 0, len(u_scale_data)), u_scale_data, color='purple')
     ax.set_xlabel('t (years)')
 
     cm1 = plt.get_cmap('autumn')
@@ -181,7 +187,7 @@ def main(num_samples, da, dv):
     fig, ax = plt.subplots()
     for sample in range(pre_samples, num_samples):
         ax.plot(times[1:], θs[sample, :], color=cm1(PE_normed[sample]))
-        ax.plot(times[1:], np.flip(θsv[sample, :]), color=cm2(PE_normed[sample]))
+        ax.plot(times[1:], θsv[sample, :], color=cm2(PE_normed[sample]))
 
     ax.plot(np.linspace(-5000, 0, len(u_scale_data)), a_scale_data, color='k')
     ax.plot(np.linspace(-5000, 0, len(u_scale_data)), u_scale_data, color='purple')
@@ -204,7 +210,7 @@ def main(num_samples, da, dv):
         ax.plot(x / 1000., target_layers[i], color='r')
 
     ax.invert_yaxis()
-    plt.show()
+    # plt.show()
 
 
 if __name__ == '__main__':

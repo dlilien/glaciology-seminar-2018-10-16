@@ -186,7 +186,7 @@ def derivative_ascale(x, a_scale, u_scale, a, u, z, target_layers, target_indice
         λ_i = (target_layers[i] - z[index, :]) / x[-1] / unc
         λ_i[np.isnan(λ_i)] = 0.0
         λ_new = adjoint_solve(x, a_scale[:index + 1], u_scale[:index + 1], a, u, z[:index + 1, :], λ_i, timesteps[:index + 1])
-        dJ_da[-index:] += np.flip(adjoint_sensitivity_ascale(dx, z[:index + 1], λ_new, a))
+        dJ_da[-index:] += np.flip(adjoint_sensitivity_ascale(dx, z[:index + 1], λ_new, a), axis=-1)
 
     # Match present values at modern
     dJ_da[-1] = 0.
@@ -205,7 +205,7 @@ def derivative_vscale(x, a_scale, u_scale, a, u, z, target_layers, target_indice
         λ_i[np.isnan(λ_i)] = 0.0
 
         λ_new = adjoint_solve(x, a_scale[:index + 1], u_scale[:index + 1], a, u, z[:index + 1, :], λ_i, timesteps[:index + 1])
-        dJ_du[-index:] += np.flip(adjoint_sensitivity_vscale(dx, z[:index + 1], λ_new, u))
+        dJ_du[-index:] += np.flip(adjoint_sensitivity_vscale(dx, z[:index + 1], λ_new, u), axis=-1)
 
     # We are assuming we know present day values, so
     dJ_du[-1] = 0.
@@ -225,8 +225,8 @@ def derivative_scales(x, a_scale, u_scale, a, u, z, target_layers, target_indice
         λ_i = (target_layers[i] - z[index, :]) / x[-1] / unc
         λ_i[np.isnan(λ_i)] = 0.0
         λ_new = adjoint_solve(x, a_scale[:index + 1], u_scale[:index + 1], a, u, z[:index + 1, :], λ_i, timesteps[:index + 1])
-        dJ_da[-index:] += np.flip(adjoint_sensitivity_ascale(dx, z[:index + 1], λ_new, a))
-        dJ_du[-index:] += np.flip(adjoint_sensitivity_vscale(dx, z[:index + 1], λ_new, u))
+        dJ_da[-index:] += np.flip(adjoint_sensitivity_ascale(dx, z[:index + 1], λ_new, a), axis=-1)
+        dJ_du[-index:] += np.flip(adjoint_sensitivity_vscale(dx, z[:index + 1], λ_new, u), axis=-1)
 
     dJ_da[-1] = 0.
     dJ_du[-1] = 0.

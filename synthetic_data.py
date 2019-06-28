@@ -29,7 +29,7 @@ def create(noisy_scaling=False, delta_a=0.2, delta_v=0.2):
     targ_variability = 0.02
     accumulation = random_state.rand(1001)
     # careful here because edge effects are really annoying
-    accumulation = filtfilt(b, a, np.hstack((accumulation, np.flip(accumulation))))[10: len(accumulation) + 10]
+    accumulation = filtfilt(b, a, np.hstack((accumulation, np.flip(accumulation, axis=-1))))[10: len(accumulation) + 10]
     accumulation = (accumulation - np.mean(accumulation)) / np.std(accumulation) * targ_variability + targ_value
 
     # lets have trends and variability
@@ -68,7 +68,7 @@ def create(noisy_scaling=False, delta_a=0.2, delta_v=0.2):
         for i in range(target_layers.shape[0]):
             # Let's assume that the noise is correlated
             noise = random_state.randn(target_layers.shape[1]) * uncertainty[i]
-            target_layers[i, :] = target_layers[i, :] + filtfilt(b2, a2, np.hstack((noise, np.flip(noise))))[10:10 + len(noise)]
+            target_layers[i, :] = target_layers[i, :] + filtfilt(b2, a2, np.hstack((noise, np.flip(noise, axis=-1))))[10:10 + len(noise)]
 
     mat = {'x': x, 'dx': dx, 'z': z, 'years_out': years_out, 'years_layers': years_layers, 'accumulation': accumulation, 'velocity': velocity, 'accumulation_scale': accumulation_scale, 'velocity_scale': velocity_scale, 'uncertainty': uncertainty, 'target_layers': target_layers}
     savemat('cached_da{:06.3f}_dv{:06.3f}.mat'.format(delta_a, delta_v), mat)
